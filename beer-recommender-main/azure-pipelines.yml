@@ -1,0 +1,53 @@
+name: submit-azure-machine-learning-job
+
+trigger:
+- none
+
+variables:
+  subscription_id: '06b5e5c6-6d85-4d3b-a7e6-9f347fe8361f' # replace with your subscription id
+  service-connection: 'mlops-connection' # replace with your generic service connection name
+  resource-group: 'machinelearning-rg' # replace with your resource group name
+  workspace: 'docs-ws' # replace with your workspace name
+
+jobs:
+- job: SubmitAzureMLJob
+  displayName: Submit AzureML Job
+  timeoutInMinutes: 300
+  pool:
+    vmImage: ubuntu-latest
+  steps:
+  - checkout: none
+  - task: UsePythonVersion@0
+    displayName: Use Python >=3.8
+    inputs:
+      versionSpec: '>=3.8'
+
+  - bash: |
+      set -ex
+
+      az version
+      az extension add -n ml
+      az login --identity
+      az account set --subscription $(subscription_id)
+
+    displayName: 'Add AzureML Extension and get identity'
+
+  - task: AzureCLI@2
+    name: submit_azureml_job_task
+    displayName: Submit AzureML Job Task
+    inputs:
+      workingDirectory: 'cli/jobs/pipelines-with-components/nyc_taxi_data_regression'
+      scriptLocation: inlineScript
+      scriptType: bash
+      inlineScript: |
+      
+      # submit component job and get the run name
+      job_name=$(az ml job create --file single-job-pipeline.yml -g $(resource-group) -w $(workspace) --query name --output tsv)
+
+
+      # Set output variable for next task
+      echo "##vso[task.setvariable variable=JOB_NAME;isOutput=true;]$job_name"
+
+      # Get a bearer token to authenticate the request in the next job
+      export aadToken=$(az account get-access-token --resource=https://management.azure.com --query accessToken -o tsv)
+      echo "##vso[task.setvariable variable=AAD_TOKEN;isOutput=true;issecret=true]$aadToken"
